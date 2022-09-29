@@ -4,8 +4,38 @@ from time import sleep
 
 from sys import argv
 
-header = 'metatable = {__index = function(self, index) if not rawget(self, index) then local tbl = setmetatable({}, metatable);self[index] = tbl;return tbl end end}\nmodules, loaded_modules, _require = setmetatable({}, metatable), {}, require'
-bottom = 'function load(f) local a = loaded_modules[f] or f(); loaded_modules[f] = a; return a end\nfunction require(v) local t = typeof(v);if t == "function" then return load(v) elseif t == "table" then local a = v["main"];if a then return load(a) end end end'
+important = """-- / -------------------------------------------------------------- \ --
+metatable = {__index = function(self, index)
+    if not rawget(self, index) then
+        local tbl = setmetatable({}, metatable)
+        self[index] = tbl
+        return tbl
+    end
+end}
+
+local modules, loaded_modules, _require = setmetatable({}, metatable), {}, require
+
+function load(f)
+    local a = loaded_modules[f] or f()
+    loaded_modules[f] = a
+    return a
+end
+
+function require(v)
+    local t = typeof(v)
+    if t == "function" then
+        return load(v)
+    elseif t == "table" then
+        local a = v["main"]
+        if a then
+            return load(a)
+        end
+    else
+        return _require(v)
+    end
+end
+-- \ -------------------------------------------------------------- / --"""
+
 module_format = "modules{path}['{name}'] = function()\n{source}\nend"
 script_format = "return (function()\n{source}\nend)()"
 
@@ -17,6 +47,7 @@ def packer():
 
     project = join(cwd, "project")
     init_file = join(project, "init.lua")
+    header_file = join(project, "header.lua")
 
     def search(dir: str, modules: list, old_path=[]):
         found_module = False
@@ -34,7 +65,7 @@ def packer():
             else:
                 bn = basename(path)
                 rn, ext = splitext(bn)
-                if "." in bn and ext == ".lua" and path != init_file:
+                if "." in bn and ext == ".lua" and path != init_file and path != header_file:
                     found_module = True
                     with open(path, "r", encoding="utf-8") as file:
                         source = file.read()
@@ -51,6 +82,8 @@ def packer():
             mkdir(project)  
         if not isfile(init_file):
             open(init_file, "w").close()
+        if not isfile(header_file):
+            open(header_file, "w").close()
 
         modules = []
         search(project, modules)
@@ -59,8 +92,11 @@ def packer():
             tabbed_lines = "\n".join(["\t"+l for l in file.read().splitlines()])
             source = script_format.format(source=tabbed_lines)
 
+        with open(header_file, "r", encoding="utf-8") as file:
+            header = file.read()
 
-        output_list = [header, *modules, bottom, source]
+
+        output_list = [header, important, *modules, source]
 
         with open(output, "w", encoding="utf-8") as file:
             file.write("\n\n".join(output_list))
